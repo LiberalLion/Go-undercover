@@ -118,17 +118,17 @@ class DesktopConfig(object):
         for pp, pv in self.panel_properties.items():
             path = pp.split('/')
             if len(path) == 4 and path[0] == '' and path[1] == 'panels' and \
-                    path[2].startswith('panel-') and path[3] == 'plugin-ids':
+                        path[2].startswith('panel-') and path[3] == 'plugin-ids':
                 plugin_ids.update(pv)
 
         for pp, pv in self.panel_properties.items():
             path = pp.split('/')
             if len(path) == 3 and path[0] == '' and path[1] == 'plugins' and \
-                    path[2].startswith('plugin-'):
+                        path[2].startswith('plugin-'):
                 number = path[2].split('-')[1]
                 try:
                     if int(number) not in plugin_ids:
-                        rem_keys.append('/plugins/plugin-' + number)
+                        rem_keys.append(f'/plugins/plugin-{number}')
                 except ValueError:
                     pass
 
@@ -161,17 +161,16 @@ class DesktopConfig(object):
         for pp, pv in self.panel_properties.items():
             path = pp.split('/')
             if len(path) == 3 and path[0] == '' and path[1] == 'plugins' and \
-                    path[2].startswith('plugin-'):
+                        path[2].startswith('plugin-'):
                 number = path[2].split('-')[1]
                 if pv.get_type_string() == 's' and \
-                        pv.get_string() == 'launcher':
-                    for d in self.panel_properties['/plugins/plugin-' + number +
-                                             '/items'].unpack():
-                        desktop_path = 'launcher-' + number + '/' + d
+                            pv.get_string() == 'launcher':
+                    for d in self.panel_properties[f'/plugins/plugin-{number}/items'].unpack():
+                        desktop_path = f'launcher-{number}/{d}'
                         if self.check_desktop(desktop_path):
                             self.desktops.append(desktop_path)
                         else:
-                            rem_keys.append('/plugins/plugin-' + number)
+                            rem_keys.append(f'/plugins/plugin-{number}')
 
         self.remove_keys(rem_keys)
 
@@ -179,19 +178,18 @@ class DesktopConfig(object):
         keys = list(self.panel_properties.keys())
         for param in keys:
             for bad_plugin in rem_keys:
-                if param == bad_plugin or param.startswith(bad_plugin+'/'):
+                if param == bad_plugin or param.startswith(f'{bad_plugin}/'):
                     try:
                         del self.panel_properties[param]
                     except KeyError:
                         pass #  https://bugzilla.xfce.org/show_bug.cgi?id=14934
 
     def get_desktop_source_file(self, desktop):
-        if getattr(self, 'source', None) is None:
-            path = os.path.join(
-                GLib.get_home_dir(), '.config/xfce4/panel/', desktop)
-            return open(path, 'rb')
-        else:
+        if getattr(self, 'source', None) is not None:
             return self.source.extractfile(desktop)
+        path = os.path.join(
+            GLib.get_home_dir(), '.config/xfce4/panel/', desktop)
+        return open(path, 'rb')
 
     def to_file(self, filename):
         if filename.endswith('.gz'):
@@ -215,10 +213,7 @@ class DesktopConfig(object):
         t.close()
 
     def get_properties_text(self, properties):
-        props_tmp = []
-        for (pp, pv) in sorted(properties.items()):
-            props_tmp.append(str(pp) + ' ' + str(pv))
-        return props_tmp
+        return [f'{str(pp)} {str(pv)}' for pp, pv in sorted(properties.items())]
 
     def check_exec(self, program):
         program = program.strip()
@@ -232,10 +227,7 @@ class DesktopConfig(object):
             return True
 
         path = GLib.find_program_in_path(executable)
-        if path is not None:
-            return True
-
-        return False
+        return path is not None
 
     def to_xfconf(self, xfconf):
         session_bus = Gio.BusType.SESSION
@@ -255,10 +247,8 @@ class DesktopConfig(object):
             for d in self.desktops:
                 bytes = self.get_desktop_source_file(d).read()
                 mkdir_p(panel_path + os.path.dirname(d))
-                f = open(panel_path + d, 'wb')
-                f.write(bytes)
-                f.close()
-
+                with open(panel_path + d, 'wb') as f:
+                    f.write(bytes)
             try:
                 dbus_proxy.call_sync('Terminate', GLib.Variant('(b)', ('xfce4-panel',)), 0, -1, None)
             except GLib.GError:  # pylint: disable=E0712
@@ -271,22 +261,20 @@ class DesktopConfig(object):
 
     def configure_desktop_monitors(self, xfconf):
         fallback_monitor = '/backdrop/screen0/monitor0/'
-        fallback_monitor_properties = {}
         prev_desktop_properties = self.read_xfconf_properties(xfconf, 'xfce4-desktop')
 
-        for pp in self.desktop_properties:
-            if re.match('^' + fallback_monitor + '[^/\s]+$', pp):
-                fallback_monitor_properties[pp.replace(fallback_monitor, '')] = \
-                        self.desktop_properties[pp]
-
+        fallback_monitor_properties = {
+            pp.replace(fallback_monitor, ''): self.desktop_properties[pp]
+            for pp in self.desktop_properties
+            if re.match(f'^{fallback_monitor}' + '[^/\s]+$', pp)
+        }
         for pp in prev_desktop_properties:
-            w = re.search('^/backdrop/screen\d/monitor[^/]+/workspace\d/', pp)
-            if w:
+            if w := re.search('^/backdrop/screen\d/monitor[^/]+/workspace\d/', pp):
                 for fpp in fallback_monitor_properties:
                     new_pp = w.group(0) + fpp
                     if new_pp not in self.desktop_properties:
                         self.desktop_properties[new_pp] = \
-                                fallback_monitor_properties[fpp]
+                                    fallback_monitor_properties[fpp]
 
     def set_properties(self, xfconf, channel, properties):
         # Reset all properties to make sure old settings are invalidated
